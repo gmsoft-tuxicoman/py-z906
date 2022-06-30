@@ -85,18 +85,18 @@ class Z906Cec():
         elif cmd == "05:c3":
             self.logger.debug("Received : ARC start")
             if self.enabled:
-                self.z906.pwm(True)
+                self.z906.power_on()
 
         # ARC end
         elif cmd == "05:c4":
             self.logger.debug("Received : ARC stop")
-            self.z906.pwm(False)
+            self.z906.power_off()
 
         # TV in standby
         elif cmd == "0f:36":
             # Standby
             self.logger.debug("Received : TV Standby")
-            self.z906.pwm(False)
+            self.z906.power_off()
 
         # Get CEC Version
         elif cmd == "05:9f":
@@ -132,11 +132,11 @@ class Z906Cec():
             if self.enabled:
                 self.logger.info("CEC ARC enabled")
                 self.cecClient.sendCommand("50:72:01")
-                self.z906.pwm(True)
+                self.z906.power_on()
             else:
                 self.logger.info("CEC ARC disabled")
                 self.cecClient.sendCommand("50:72:00")
-                self.z906.pwm(False)
+                self.z906.power_off()
             
         
                 
