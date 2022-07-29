@@ -55,7 +55,7 @@ class Z906Client():
     muted = False
     ser = None
 
-    level_fields = {
+    speaker_fields = {
             'main': STATUS_MAIN_LEVEL,
             'rear': STATUS_REAR_LEVEL,
             'center': STATUS_CENTER_LEVEL,
@@ -137,60 +137,60 @@ class Z906Client():
             raise TimeoutError
         self.status = bytearray(ret)
 
-    def level_up(self, level='main'):
+    def level_up(self, spkr='main'):
 
-        if level not in self.level_fields:
-            raise ValueError("Invalid level provided")
+        if spkr not in self.speaker_fields:
+            raise ValueError("Invalid speaker provided")
 
-        field = self.level_fields[level]
+        field = self.speaker_fields[spkr]
 
         cmd = 0
-        if level == 'main':
+        if spkr == 'main':
             cmd = 0x08
-        elif level == 'sub' or level == 'subwoofer':
+        elif spkr == 'sub' or spkr == 'subwoofer':
             cmd = 0x0A
-        elif level == 'center':
+        elif spkr == 'center':
             cmd = 0x0C
-        elif level == 'rear':
+        elif spkr == 'rear':
             cmd = 0x0E
 
         if self.status[field] == self.VOLUME_MAX:
-            raise ValueError("Volume level for " + level + " already at maximum")
+            raise ValueError("Volume level for " + spkr + " already at maximum")
 
         ret = self.request(cmd)
         self.status[field] += 1
-        self.logger.info("Level " + level + " up to " + str(self.status[field]))
+        self.logger.info("Level for " + spkr + " up to " + str(self.status[field]))
 
 
-    def level_down(self, level='main'):
+    def level_down(self, spkr='main'):
 
-        if level not in self.level_fields:
-            raise ValueError("Invalid level provided")
+        if spkr not in self.speaker_fields:
+            raise ValueError("Invalid speaker provided")
 
         cmd = 0
-        field = self.level_fields[level]
-        if level == 'main':
+        field = self.speaker_fields[spkr]
+        if spkr == 'main':
             cmd = 0x09
-        elif level == 'sub' or level == 'subwoofer':
+        elif spkr == 'sub' or spkr == 'subwoofer':
             cmd = 0x0B
-        elif level == 'center':
+        elif spkr == 'center':
             cmd = 0x0D
-        elif level == 'rear':
+        elif spkr == 'rear':
             cmd = 0x0F
 
         if self.status[field] == 0:
-            raise ValueError("Volume level for " + level + " already at minimum")
+            raise ValueError("Volume level for " + spkr + " already at minimum")
 
         ret = self.request(cmd)
         self.status[field] -= 1
-        self.logger.info("Level " + level + " down to " + str(self.status[field]))
+        self.logger.info("Level " + spkr + " down to " + str(self.status[field]))
 
-    def get_level(self, level='main'):
+    def get_level(self, spkr='main'):
 
-        if level not in self.level_fields:
-            raise ValueError("Invalid level provided")
+        if spkr not in self.speaker_fields:
+            raise ValueError("Invalid speaker provided")
 
-        field = self.level_fields[level]
+        field = self.speaker_fields[spkr]
         return self.status[field]
 
 
@@ -376,6 +376,9 @@ class Z906Client():
             self.headphones(True)
         elif cmd[0] == "off":
             self.headphones(False)
+        elif cmd[0] == "toggle":
+            self.update()
+            self.headphones(not self.status[self.STATUS_HEADPHONES])
         else:
             raise ValueError("Unknown parameter")
 
@@ -387,18 +390,18 @@ class Z906Client():
             print("Levels : main " + str(self.status[self.STATUS_MAIN_LEVEL]) + "/43, center " + str(self.status[self.STATUS_CENTER_LEVEL]) + "/43, subwoofer " + str(self.status[self.STATUS_SUB_LEVEL]) + "/43, rear " + str(self.status[self.STATUS_REAR_LEVEL]) + "/43")
             return
 
-        level = "main"
-        levels = [ "main", "sub", "subwoofer", "center", "rear" ]
+        spkr = "main"
+        speakers = [ "main", "sub", "subwoofer", "center", "rear" ]
         if len(cmd) == 2:
-            if cmd[1] in levels:
-                level = cmd[1]
+            if cmd[1] in spakers:
+                spkr = cmd[1]
             else:
-                raise ValueError("Unknown level " + cmd[1])
+                raise ValueError("Unknown speaker " + cmd[1])
 
         if cmd[0] == "up":
-            self.level_up(level)
+            self.level_up(spkr)
         elif cmd[0] == "down":
-            self.level_down(level)
+            self.level_down(spkr)
         else:
             raise ValueError("Uknonwn argument to volume command : " + cmd[0])
 
