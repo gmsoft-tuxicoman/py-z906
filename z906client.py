@@ -393,7 +393,7 @@ class Z906Client():
         spkr = "main"
         speakers = [ "main", "sub", "subwoofer", "center", "rear" ]
         if len(cmd) == 2:
-            if cmd[1] in spakers:
+            if cmd[1] in speakers:
                 spkr = cmd[1]
             else:
                 raise ValueError("Unknown speaker " + cmd[1])
