@@ -178,11 +178,12 @@ class CecClient:
 
     def sendCommand(self, data, src='5', dst='0'):
         cmd_str = src + dst + ':' + data
-        cmd = self.lib.CommandFromString(src + dst + ':' + data)
+        self.logger.debug("Sending command : " + cmd_str)
+        cmd = self.lib.CommandFromString(cmd_str)
         if not self.lib.Transmit(cmd):
             self.logger.warning("Error while sending CEC command")
         else:
-            self.logger.debug("Sent : " + data)
+            self.logger.debug("Sent : " + cmd_str)
 
 
     def setEventCallback(self, callback):

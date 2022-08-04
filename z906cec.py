@@ -53,15 +53,15 @@ class Z906Cec():
 
         if evt == "level_up":
             self.z906.level_up()
-            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+            self.cecClient.reportAudioStatus(self.z906.get_level(), self.z906.is_muted())
         elif evt == "level_down":
             self.z906.level_down()
-            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+            self.cecClient.reportAudioStatus(self.z906.get_level(), self.z906.is_muted())
         elif evt == "mute":
             self.z906.mute_toggle()
-            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+            self.cecClient.reportAudioStatus(self.z906.get_level(), self.z906.is_muted())
         elif evt == "give_audio_status":
-            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+            self.cecClient.reportAudioStatus(self.z906.get_level(), self.z906.is_muted())
 
 
         elif evt == "arc_start":
