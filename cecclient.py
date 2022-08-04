@@ -37,33 +37,39 @@ class CecClient:
         self.logger.debug("Found adapter " + adapter.strComName)
         self.lib.Open(adapter.strComName)
 
-    def reportAudioStatus(self, level, mute)
+    def reportAudioStatus(self, level, mute):
 
         status = int(level)
         if mute:
             status += 0x80
         cmd = "7A:{:02x}".format(status)
-        self.cecClient.sendCommand(cmd)
+        self.sendCommand(cmd)
 
     def enable(self):
         if self.enabled:
             return
 
-        # Power on
-        self.cecClient.sendCommand("90:00")
-        # System audio mode status on
-        self.cecClient.sendCommand("72:01", dst=src)
         self.enabled = True
+        self.logger.info("Enabling CEC ARC")
+
+        # Power on
+        self.sendCommand("90:00")
+        # System audio mode status on
+        self.sendCommand("72:01")
+        self.logger.info("CEC ARC enabled")
 
     def disable(self):
         if not self.enabled:
             return
 
-        # Power off
-        self.cecClient.sendCommand("90:01")
-        # System audio mode status off
-        self.cecClient.sendCommand("72:00", dst=src)
         self.enabled = False
+        self.logger.info("Disabling CEC ARC")
+
+        # Power off
+        self.sendCommand("90:01")
+        # System audio mode status off
+        self.sendCommand("72:00")
+        self.logger.info("CEC ARC disabled")
 
     def is_enabled(self):
         return self.enabled
@@ -120,7 +126,7 @@ class CecClient:
         # Get CEC Version
         elif cmd == "9f":
             self.logger.debug("Received : Get CEC Version")
-            self.cecClient.send("9E:05", dst=src) # Version 1.4
+            self.send("9E:05", dst=src) # Version 1.4
 
         # Give audio status
         if cmd == "71":
@@ -132,27 +138,27 @@ class CecClient:
         elif cmd == "7d":
             if self.enabled:
                 # Audio status on
-                self.cecClient.sendCommand("7e:01", dst=src)
+                self.sendCommand("7e:01", dst=src)
             else:
                 # Audio status off
-                self.cecClient.sendCommand("7e:00", dst=src)
+                self.sendCommand("7e:00", dst=src)
 
         # Give power status
         elif cmd == "8f":
             if self.enabled:
                 # Power on
-                cecClient.sendCommand("90:00", dst=src)
+                sendCommand("90:00", dst=src)
             else:
                 # Standby
-                cecClient.sendCommand("90:01", dst=src)
+                sendCommand("90:01", dst=src)
 
 
         # System audio mode request
         elif cmd.startswith("70"):
             if self.enabled:
-                self.cecClient.sendCommand("72:01", dst=src)
+                self.sendCommand("72:01", dst=src)
             else:
-                self.cecClient.sendCommand("72:00", dst=src)
+                self.sendCommand("72:00", dst=src)
 
         # One touch play active source
         elif cmd.startswith("82:"):
@@ -171,6 +177,7 @@ class CecClient:
                 self.evtCallback("src_changed")
 
     def sendCommand(self, data, src='5', dst='0'):
+        cmd_str = src + dst + ':' + data
         cmd = self.lib.CommandFromString(src + dst + ':' + data)
         if not self.lib.Transmit(cmd):
             self.logger.warning("Error while sending CEC command")

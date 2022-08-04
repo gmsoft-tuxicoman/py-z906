@@ -23,8 +23,11 @@ class Z906Cec():
     logger = logging.getLogger("Z906Cec")
 
 
-    def __init__(self, z906_port, z906_input):
+    def __init__(self, z906_port, z906_input, enabled_ports = None):
     
+        self.enabled_hdmi_ports = enabled_ports
+        self.logger.info("Enabled HDMI ports : " + str(enabled_ports))
+
         # Init the Z906
         self.logger.info("Connecting to Z906 ...")
         self.z906 = z906client.Z906Client(z906_port)
@@ -38,14 +41,15 @@ class Z906Cec():
         self.cecClient = cecclient.CecClient("Z906")
         self.cecClient.open()
         self.logger.debug("CEC initialized")
+        self.cecClient.setEventCallback(self._cecCallback)
 
     
         self.logger.info("Ready !")
-    def setDisabledPorts(self, enabled_hdmi_ports = None):
-        self.enabled_hdmi_ports = enabled_hdmi_ports
 
-    def _cecCallback(self, evt, arg):
+    def _cecCallback(self, evt):
 
+
+        self.logger.debug("Got event " + evt)
 
         if evt == "level_up":
             self.z906.level_up()
@@ -56,7 +60,7 @@ class Z906Cec():
         elif evt == "mute":
             self.z906.mute_toggle()
             self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
-        elif evt == "give_audio_status"
+        elif evt == "give_audio_status":
             self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
 
 
@@ -67,14 +71,15 @@ class Z906Cec():
             if self.cecClient.is_enabled():
                 self.z906.power_off()
 
-        elif evt == "standby"
+        elif evt == "standby":
             self.z906.power_off()
 
         elif evt == "src_changed":
-            if self.enabled_hdmi_ports:
+            src_port = self.cecClient.get_src_port()
+            self.logger.info("Source changed to " + src_port)
+            if not self.enabled_hdmi_ports:
                 return
             
-            src_port = self.cecClient.get_src_port()
             for p in self.enabled_hdmi_ports:
                 if src_port.startswith(p):
                     self.cecClient.enable()
@@ -90,8 +95,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    z906cec = Z906Cec(args.port, args.input)
-    z906cec.setDisabledPorts(args.disabled)
+    z906cec = Z906Cec(args.port, args.input, args.enabled)
 
 
 while True:
