@@ -83,8 +83,10 @@ class Z906Cec():
             for p in self.enabled_hdmi_ports:
                 if src_port.startswith(p):
                     self.cecClient.enable()
+                    self.z906.power_on()
                     return
             self.cecClient.disable()
+            self.z906.power_off()
 
                 
 if __name__ == "__main__":
