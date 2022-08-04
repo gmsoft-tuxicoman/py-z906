@@ -12,16 +12,14 @@ argparser = argparse.ArgumentParser(description="Logitech Z906 CEC translator")
 argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 argparser.add_argument('--port', '-P', dest='port', help='Z906 serial port', default=z906client.SERIAL_PORT)
 argparser.add_argument('--input', '-i', dest='input', help='Z906 input to use (1-6)', default=1, type=int)
-argparser.add_argument('--disable', '-D', dest='disabled', help='Disable ARC for certain HDMI ports', action='append', type=int)
+argparser.add_argument('--address', '-a', dest='enabled', help='Enabled ARC only for certain HDMI ports', action='append')
 
 
 class Z906Cec():
 
-    disable_hdmi_dports = []
+    enabled_hdmi_ports = None
     z906 = None
     cecClient = None
-    enabled = True
-
     logger = logging.getLogger("Z906Cec")
 
 
@@ -38,107 +36,51 @@ class Z906Cec():
         # Init CEC
         self.logger.info("Initiating CEC ...")
         self.cecClient = cecclient.CecClient("Z906")
-        self.cecClient.setCommandCallback(self._cecCallback)
         self.cecClient.open()
         self.logger.debug("CEC initialized")
 
     
         self.logger.info("Ready !")
-    def setDisabledPorts(self, disabled_hdmi_ports):
-        if disabled_hdmi_ports == None:
-            disabled_hdmi_ports = []
-        self.disabled_hdmi_ports = disabled_hdmi_ports
+    def setDisabledPorts(self, enabled_hdmi_ports = None):
+        self.enabled_hdmi_ports = enabled_hdmi_ports
 
-    def _cecCallback(self, cmd):
+    def _cecCallback(self, evt, arg):
 
-        cmd=cmd[3:]
-        self.logger.debug("Got CEC command " + cmd)
 
-        # Key presset event
-        if cmd.startswith("05:44:"):
-            # Parse key press
-            key = cmd[6:]
-            if key == '41':
-                self.logger.debug("Received key : Volume up")
-                self.z906.level_up()
-            elif key == '42':
-                self.logger.debug("Received key : Volume down")
-                self.z906.level_down()
-            elif key == '43':
-                self.logger.debug("Received key : Mute")
-                self.z906.mute_toggle()
-            else:
-                return
+        if evt == "level_up":
+            self.z906.level_up()
+            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+        elif evt == "level_down":
+            self.z906.level_down()
+            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+        elif evt == "mute":
+            self.z906.mute_toggle()
+            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
+        elif evt == "give_audio_status"
+            self.cecClient.reportAudioStatus(z906.get_level(), z906.is_muted())
 
-            mute = z906.is_muted()
-            level = z906.get_level()
 
-            #status = int(100.0 / (z906.VOLUME_MAX + 1) * level)
-            status = int(level)
-            if mute:
-                status += 0x80
-
-            cmd = "50:7A:{:02x}".format(status)
-            self.cecClient.sendCommand(cmd)
-
-        # ARC start
-        elif cmd == "05:c3":
-            self.logger.debug("Received : ARC start")
-            if self.enabled:
+        elif evt == "arc_start":
+            if self.cecClient.is_enabled():
                 self.z906.power_on()
-
-        # ARC end
-        elif cmd == "05:c4":
-            self.logger.debug("Received : ARC stop")
-            self.z906.power_off()
-
-        # TV in standby
-        elif cmd == "0f:36":
-            # Standby
-            self.logger.debug("Received : TV Standby")
-            self.z906.power_off()
-
-        # Get CEC Version
-        elif cmd == "05:9f":
-            self.logger.debug("Received : Get CEC Version")
-            self.cecClient.send("05:9E:04")
-
-
-        # Report audio status
-        elif cmd == "05:7d":
-            if self.enabled:
-                self.cecClient.sendCommand("50:7e:01")
-            else:
-                self.cecClient.sendCommand("50:7e:00")
-
-        elif cmd == "05:8f":
-            cecClient.sendCommand("50:90:00")
-
-
-        # System audio mode request
-        elif cmd == "05:70:00:00":
-            if self.enabled:
-                self.ecClient.sendCommand("50:72:01")
-            else:
-                self.ecClient.sendCommand("50:72:00")
-
-        # Source change
-        elif cmd[3:].startswith("82:"):
-            self.logger.debug("Received source change to HDMI port " + cmd[4:])
-            port = int(cmd[4:5])
-            if port in self.disabled_hdmi_ports:
-                self.enabled = False
-
-            if self.enabled:
-                self.logger.info("CEC ARC enabled")
-                self.cecClient.sendCommand("50:72:01")
-                self.z906.power_on()
-            else:
-                self.logger.info("CEC ARC disabled")
-                self.cecClient.sendCommand("50:72:00")
+        elif evt == "arc_stop":
+            if self.cecClient.is_enabled():
                 self.z906.power_off()
+
+        elif evt == "standby"
+            self.z906.power_off()
+
+        elif evt == "src_changed":
+            if self.enabled_hdmi_ports:
+                return
             
-        
+            src_port = self.cecClient.get_src_port()
+            for p in self.enabled_hdmi_ports:
+                if src_port.startswith(p):
+                    self.cecClient.enable()
+                    return
+            self.cecClient.disable()
+
                 
 if __name__ == "__main__":
     args = argparser.parse_args()
