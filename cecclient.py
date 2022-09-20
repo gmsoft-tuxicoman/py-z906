@@ -2,7 +2,11 @@
 
 import cec
 import logging
+import time
+import argparse
 
+argparser = argparse.ArgumentParser(description="CEC client")
+argparser.add_argument('--debug', '-d', dest='debug', help='Enable debugging', default=False, action='store_const', const=True)
 
 class CecClient:
 
@@ -19,9 +23,21 @@ class CecClient:
         self.cecconfig.bActivateSource = 0
         self.cecconfig.deviceTypes.Add(cec.CEC_DEVICE_TYPE_AUDIO_SYSTEM)
         self.cecconfig.clientVersion = cec.LIBCEC_VERSION_CURRENT
-        self.cecconfig.SetCommandCallback(self._cmdCallback)
+        self.cecconfig.SetCommandHandlerCallback(self._cmdCallback)
+        try:
+            self.cecconfig.SetLogCallback(self._cecLogCallback)
+        except:
+            print("This client requires a patched version of libcec. The official version doesn't allow the implementation of this features.")
+            print("See https://github.com/Pulse-Eight/libcec/pull/617\n\n")
+            raise Exception("Unsupported libcec")
+
+
+        self.evtCallback = self._dummyCecCallback
 
         self.logger = logging.getLogger("CecClient")
+
+    def _cecLogCallback(self, level, time, message):
+        self.logger.debug("CEC: " + message)
 
 
     def open(self):
@@ -86,9 +102,10 @@ class CecClient:
         # Discard source and dest
         if cmd[1] != 'f' and cmd[1] != '5':
             self.logger.debug("Ignoring command as it's not destined for broadcast or audio-system")
-            return
+            return 0
 
         src = cmd[0]
+        dst = cmd[1]
         cmd = cmd[3:]
 
         # Key presset event
@@ -105,17 +122,37 @@ class CecClient:
                 self.logger.debug("Received key : Mute")
                 self.evtCallback("mute")
             else:
-                return
+                return 1
+
+        # Key press released
+        elif cmd == "45":
+            self.logger.debug("Key released")
+
+        # Vendor ID
+        elif cmd.startswith("87"):
+            self.logger.debug("Received vendor ID : " + cmd[3:] + " from device " + src)
+
+        # ARC initiated
+        elif cmd == "c1":
+            self.logger.debug("Received: ARC initiated")
+            self.evtCallback("arc_start")
+
+        # ARC terminated
+        elif cmd == "c2":
+            self.logger.debug("Recived: ARC terminated")
+            self.evtCallback("arc_stop")
 
         # ARC start
         elif cmd == "c3":
             self.logger.debug("Received : ARC start")
-            self.evtCallback("arc_start")
+            self.sendCommand('87:00:80:45', '5', 'f')
+            self.sendCommand("c0", dst=src)
 
         # ARC end
         elif cmd == "c4":
             self.logger.debug("Received : ARC stop")
-            self.evtCallback("arc_stop")
+            self.sendCommand("c5", dst=src)
+
 
         # TV in standby
         elif cmd == "36":
@@ -129,7 +166,7 @@ class CecClient:
             self.send("9E:05", dst=src) # Version 1.4
 
         # Give audio status
-        if cmd == "71":
+        elif cmd == "71":
             self.logger.debug("Received : Give audio status")
             self.evtCallback("give_audio_status")
 
@@ -147,10 +184,10 @@ class CecClient:
         elif cmd == "8f":
             if self.enabled:
                 # Power on
-                sendCommand("90:00", dst=src)
+                self.sendCommand("90:00", dst=src)
             else:
                 # Standby
-                sendCommand("90:01", dst=src)
+                self.sendCommand("90:01", dst=src)
 
 
         # System audio mode request
@@ -176,24 +213,50 @@ class CecClient:
                 self.src_port = src_port
                 self.evtCallback("src_changed")
 
+        # Vendor specific command
+        elif cmd.startswith("a0:"):
+            self.logger.debug("Aborting vendor specific command")
+            if dst != 'f':
+                self.sendCommand("00:" + cmd[0:2] + ":00", dst=src)
+
+        # Feature abort
+        else:
+            self.logger.debug("Command " + cmd + " not handled")
+            return 0
+
+        self.logger.debug("Command " + cmd + " handled")
+        return 1
+
     def sendCommand(self, data, src='5', dst='0'):
         cmd_str = src + dst + ':' + data
         self.logger.debug("Sending command : " + cmd_str)
         cmd = self.lib.CommandFromString(cmd_str)
         if not self.lib.Transmit(cmd):
             self.logger.warning("Error while sending CEC command")
-        else:
-            self.logger.debug("Sent : " + cmd_str)
+#        else:
+#            self.logger.debug("Sent : " + cmd_str)
 
 
     def setEventCallback(self, callback):
         self.evtCallback = callback
 
 
+    def _dummyCecCallback(self, evt):
+        self.logger.debug("Got event " + evt)
+        if evt == "give_audio_status":
+            # Report dummy status
+            self.reportAudioStatus(10, False)
+
 if __name__ == '__main__':
 
     cecClient = CecClient("Z906")
     cecClient.open()
 
+    args = argparser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
     while True:
         time.sleep(1)
