@@ -1,0 +1,311 @@
+diff --git a/include/cectypes.h b/include/cectypes.h
+index e585f2f..94499e4 100644
+--- a/include/cectypes.h
++++ b/include/cectypes.h
+@@ -1450,6 +1450,15 @@ typedef struct ICECCallbacks
+    */
+   void (CEC_CDECL* sourceActivated)(void* cbParam, const cec_logical_address logicalAddress, const uint8_t bActivated);
+ 
++  /*!
++   * @brief Allow the client handle a CEC command instead of libcec.
++   * @param cbparam             Callback parameter provided when the callbacks were set up
++   * @param command             The command to handle.
++   *
++   * @return 1 if the command has been handled and if libCEC should not take any action
++   */
++  int (CEC_CDECL* commandHandler)(void* cbparam, const cec_command* command);
++
+ #ifdef __cplusplus
+    ICECCallbacks(void) { Clear(); }
+   ~ICECCallbacks(void) { Clear(); };
+@@ -1463,6 +1472,7 @@ typedef struct ICECCallbacks
+     alert                = nullptr;
+     menuStateChanged     = nullptr;
+     sourceActivated      = nullptr;
++    commandHandler       = nullptr;
+   }
+ #endif
+ } ICECCallbacks;
+diff --git a/src/cec-client/cec-client.cpp b/src/cec-client/cec-client.cpp
+index b209b1e..7544bc7 100644
+--- a/src/cec-client/cec-client.cpp
++++ b/src/cec-client/cec-client.cpp
+@@ -227,6 +227,10 @@ void CecCommand(void *UNUSED(cbParam), const cec_command* UNUSED(command))
+ {
+ }
+ 
++int CecCommandHandler(void *UNUSED(cbParam), const cec_command* UNUSED(command))
++{
++  return 0;
++}
+ void CecAlert(void *UNUSED(cbParam), const libcec_alert type, const libcec_parameter UNUSED(param))
+ {
+   switch (type)
+@@ -1275,6 +1279,7 @@ int main (int argc, char *argv[])
+   g_callbacks.keyPress        = &CecKeyPress;
+   g_callbacks.commandReceived = &CecCommand;
+   g_callbacks.alert           = &CecAlert;
++  g_callbacks.commandHandler  = &CecCommandHandler;
+   g_config.callbacks          = &g_callbacks;
+ 
+   if (!ProcessCommandLineArguments(argc, argv))
+diff --git a/src/cecc-client/cecc-client.c b/src/cecc-client/cecc-client.c
+index d65b77f..1db9c28 100644
+--- a/src/cecc-client/cecc-client.c
++++ b/src/cecc-client/cecc-client.c
+@@ -65,7 +65,8 @@ static ICECCallbacks        g_callbacks = {
+     .configurationChanged = NULL,
+     .alert                = NULL,
+     .menuStateChanged     = NULL,
+-    .sourceActivated      = NULL
++    .sourceActivated      = NULL,
++    .commandHandler       = NULL
+ };
+ 
+ static libcec_configuration  g_config;
+diff --git a/src/dotnetlib/CecSharpTypesUnmanaged.h b/src/dotnetlib/CecSharpTypesUnmanaged.h
+index 53ff9bd..166547d 100644
+--- a/src/dotnetlib/CecSharpTypesUnmanaged.h
++++ b/src/dotnetlib/CecSharpTypesUnmanaged.h
+@@ -187,8 +187,22 @@ namespace CecSharp
+   }
+ 
+   /// <summary>
+-  /// Assign the callback methods in the g_cecCallbacks struct and return a pointer to it
++  /// Called by libCEC to have the client handle the command and prevent further process by libCEC
+   /// </summary>
++  /// <param name="cbParam">Pointer to the callback struct</param>
++  /// <param name="command">The raw CEC data</param>
++  /// <return>1 when handled by the client, 0 otherwise</return>
++  static int CecCommandHandlerCB(void* cbParam, const CEC::cec_command* command)
++  {
++    struct UnmanagedCecCallbacks* cb = static_cast<struct UnmanagedCecCallbacks*>(cbParam);
++    if (!!cb && !!cb->commandHandlerCB)
++      return cb->commandHandlerCB(command);
++    return 0;
++  }
++
++  /// <summary>
++  /// Assign the callback methods in the g_cecCallbacks struct and return a pointer to it
++ /// </summary>
+   static CEC::ICECCallbacks* GetLibCecCallbacks()
+   {
+     g_cecCallbacks.logMessage = CecLogMessageCB;
+@@ -198,6 +212,7 @@ namespace CecSharp
+     g_cecCallbacks.alert = CecAlertCB;
+     g_cecCallbacks.menuStateChanged = CecMenuCB;
+     g_cecCallbacks.sourceActivated = CecSourceActivatedCB;
++    g_cecCallbacks.commandHandler = CecCommandHandlerCB;
+     return &g_cecCallbacks;
+   }
+ #pragma managed
+diff --git a/src/libcec/CECClient.cpp b/src/libcec/CECClient.cpp
+index b4167a1..3e8f5c4 100644
+--- a/src/libcec/CECClient.cpp
++++ b/src/libcec/CECClient.cpp
+@@ -1617,6 +1617,17 @@ void CCECClient::QueueSourceActivated(bool bActivated, const cec_logical_address
+   m_callbackCalls.Push(new CCallbackWrap(bActivated, logicalAddress));
+ }
+ 
++int CCECClient::QueueCommandHandler(const cec_command& command)
++{
++  CCallbackWrap *wrapState = new CCallbackWrap(command, true);
++  m_callbackCalls.Push(wrapState);
++  int result(wrapState->Result(1000));
++
++  delete wrapState;
++  printf("Command handler for command (%2X) returned %u\n", command.opcode, result);
++  return result;
++}
++
+ void* CCECClient::Process(void)
+ {
+   CCallbackWrap* cb(NULL);
+@@ -1624,6 +1635,7 @@ void* CCECClient::Process(void)
+   {
+     if (m_callbackCalls.Pop(cb, 500))
+     {
++      bool keepResult = cb->m_keepResult;
+       try
+       {
+         switch (cb->m_type)
+@@ -1649,11 +1661,14 @@ void* CCECClient::Process(void)
+         case CCallbackWrap::CEC_CB_SOURCE_ACTIVATED:
+           CallbackSourceActivated(cb->m_bActivated, cb->m_logicalAddress);
+           break;
++        case CCallbackWrap::CEC_CB_COMMAND_HANDLER:
++	  cb->Report(CallbackCommandHandler(cb->m_command));
++	  break;
+         default:
+           break;
+         }
+ 
+-        if (!cb->m_keepResult)
++        if (!keepResult)
+           delete cb;
+       } catch (...)
+       {
+@@ -1733,6 +1748,17 @@ int CCECClient::CallbackMenuStateChanged(const cec_menu_state newState)
+   return 0;
+ }
+ 
++int CCECClient::CallbackCommandHandler(const cec_command &command)
++{
++  CLockObject lock(m_cbMutex);
++  if (!!m_configuration.callbacks &&
++     !!m_configuration.callbacks->commandHandler)
++  {
++    return m_configuration.callbacks->commandHandler(m_configuration.callbackParam, &command);
++  }
++  return 0;
++}
++
+ bool CCECClient::AudioEnable(bool enable)
+ {
+   CCECBusDevice* device = enable ? GetPrimaryDevice() : nullptr;
+diff --git a/src/libcec/CECClient.h b/src/libcec/CECClient.h
+index 1c23ee1..106b3e1 100644
+--- a/src/libcec/CECClient.h
++++ b/src/libcec/CECClient.h
+@@ -127,6 +127,17 @@ namespace CEC
+       m_result(0),
+       m_bSucceeded(false) {}
+ 
++    CCallbackWrap(const cec_command& command, const bool keepResult) :
++      m_type(CEC_CB_COMMAND_HANDLER),
++      m_command(command),
++      m_alertType(CEC_ALERT_SERVICE_DEVICE),
++      m_menuState(CEC_MENU_STATE_ACTIVATED),
++      m_bActivated(false),
++      m_logicalAddress(CECDEVICE_UNKNOWN),
++      m_keepResult(keepResult),
++      m_result(0),
++      m_bSucceeded(false) {}
++
+     int Result(uint32_t iTimeout)
+     {
+       P8PLATFORM::CLockObject lock(m_mutex);
+@@ -134,6 +145,7 @@ namespace CEC
+       bool bReturn = m_bSucceeded ? true : m_condition.Wait(m_mutex, m_bSucceeded, iTimeout);
+       if (bReturn)
+         return m_result;
++      printf("Callback timed out !!!!\n");
+       return 0;
+     }
+ 
+@@ -154,6 +166,7 @@ namespace CEC
+       CEC_CB_CONFIGURATION,
+       CEC_CB_MENU_STATE,
+       CEC_CB_SOURCE_ACTIVATED,
++      CEC_CB_COMMAND_HANDLER,
+     } m_type;
+ 
+     cec_command                  m_command;
+@@ -314,6 +327,7 @@ namespace CEC
+     void QueueConfigurationChanged(const libcec_configuration& config);
+     int QueueMenuStateChanged(const cec_menu_state newState); //TODO
+     void QueueSourceActivated(bool bActivated, const cec_logical_address logicalAddress);
++    int QueueCommandHandler(const cec_command& command);
+ 
+     // callbacks
+     virtual void                  Alert(const libcec_alert type, const libcec_parameter &param) { QueueAlert(type, param); }
+@@ -443,6 +457,7 @@ namespace CEC
+     void CallbackConfigurationChanged(const libcec_configuration& config);
+     int  CallbackMenuStateChanged(const cec_menu_state newState);
+     void CallbackSourceActivated(bool bActivated, const cec_logical_address logicalAddress);
++    int CallbackCommandHandler(const cec_command &command);
+ 
+     uint32_t DoubleTapTimeoutMS(void);
+ 
+diff --git a/src/libcec/SwigHelper.h b/src/libcec/SwigHelper.h
+index 9855976..8ed6915 100644
+--- a/src/libcec/SwigHelper.h
++++ b/src/libcec/SwigHelper.h
+@@ -58,6 +58,7 @@ namespace CEC
+     PYTHON_CB_MENU_STATE,
+     PYTHON_CB_SOURCE_ACTIVATED,
+     PYTHON_CB_CONFIGURATION,
++    PYTHON_CB_COMMAND_HANDLER,
+     NB_PYTHON_CB,
+   };
+ 
+@@ -88,6 +89,7 @@ namespace CEC
+       m_configuration->callbacks->alert                = CBCecAlert;
+       m_configuration->callbacks->menuStateChanged     = CBCecMenuStateChanged;
+       m_configuration->callbacks->sourceActivated      = CBCecSourceActivated;
++      m_configuration->callbacks->commandHandler       = CBCecCommandHandler;
+     }
+ 
+     /**
+@@ -220,6 +222,14 @@ namespace CEC
+       PyGILState_Release(gstate);
+     }
+ 
++    static int CBCecCommandHandler(void* param, const CEC::cec_command* command)
++    {
++      PyGILState_STATE gstate = PyGILState_Ensure();
++      int retval = CallPythonCallback(param, PYTHON_CB_COMMAND_HANDLER,
++                                      Py_BuildValue("(s)", CEC::CCECTypeUtils::ToString(*command).c_str()));
++      PyGILState_Release(gstate);
++      return retval;
++    }
+     PyObject*             m_callbacks[NB_PYTHON_CB];
+     libcec_configuration* m_configuration;
+   };
+diff --git a/src/libcec/implementations/CECCommandHandler.cpp b/src/libcec/implementations/CECCommandHandler.cpp
+index 09087f1..2261a93 100644
+--- a/src/libcec/implementations/CECCommandHandler.cpp
++++ b/src/libcec/implementations/CECCommandHandler.cpp
+@@ -77,6 +77,18 @@ bool CCECCommandHandler::HandleCommand(const cec_command &command)
+ 
+   LIB_CEC->AddCommand(command);
+ 
++
++  CCECBusDevice *device = GetDevice(command.destination);
++  if (device)
++  {
++    CECClientPtr client = device->GetClient();
++    if (client)
++    {
++      if (client->QueueCommandHandler(command) == 1)
++        return true;
++    }
++  }
++
+   switch(command.opcode)
+   {
+   case CEC_OPCODE_REPORT_POWER_STATUS:
+@@ -100,9 +112,16 @@ bool CCECCommandHandler::HandleCommand(const cec_command &command)
+   case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID:
+     iHandled = HandleGiveDeviceVendorId(command);
+     break;
+-  case CEC_OPCODE_DEVICE_VENDOR_ID:
++  case CEC_OPCODE_DEVICE_VENDOR_ID: {
++    libcec_configuration config;
++    LIB_CEC->GetCurrentConfiguration(&config);
++    if (!config.deviceTypes.IsEmpty() && config.deviceTypes.types[0] == CEC_DEVICE_TYPE_AUDIO_SYSTEM) {
++      iHandled = COMMAND_HANDLED;
++      break; // Don't try to emulate the vendor if we're an audio system
++    }
+     iHandled = HandleDeviceVendorId(command);
+     break;
++    }
+   case CEC_OPCODE_VENDOR_COMMAND_WITH_ID:
+     iHandled = HandleDeviceVendorCommandWithId(command);
+     break;
+diff --git a/src/libcec/libcec.i b/src/libcec/libcec.i
+index 88250be..d62895e 100644
+--- a/src/libcec/libcec.i
++++ b/src/libcec/libcec.i
+@@ -103,6 +103,11 @@
+     _SetCallback(self, CEC::PYTHON_CB_CONFIGURATION, pyfunc);
+   }
+ 
++  void SetCommandHandlerCallback(PyObject* pyfunc)
++  {
++    _SetCallback(self, CEC::PYTHON_CB_COMMAND_HANDLER, pyfunc);
++  }
++
+   void ClearCallbacks(void)
+   {
+     _ClearCallbacks(self);
