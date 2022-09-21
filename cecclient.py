@@ -23,9 +23,9 @@ class CecClient:
         self.cecconfig.bActivateSource = 0
         self.cecconfig.deviceTypes.Add(cec.CEC_DEVICE_TYPE_AUDIO_SYSTEM)
         self.cecconfig.clientVersion = cec.LIBCEC_VERSION_CURRENT
-        self.cecconfig.SetCommandHandlerCallback(self._cmdCallback)
+        self.cecconfig.SetLogCallback(self._cecLogCallback)
         try:
-            self.cecconfig.SetLogCallback(self._cecLogCallback)
+            self.cecconfig.SetCommandHandlerCallback(self._cmdCallback)
         except:
             print("This client requires a patched version of libcec. The official version doesn't allow the implementation of this features.")
             print("See https://github.com/Pulse-Eight/libcec/pull/617\n\n")
