@@ -100,9 +100,18 @@ index 53ff9bd..166547d 100644
    }
  #pragma managed
 diff --git a/src/libcec/CECClient.cpp b/src/libcec/CECClient.cpp
-index b4167a1..3e8f5c4 100644
+index b4167a1..445f671 100644
 --- a/src/libcec/CECClient.cpp
 +++ b/src/libcec/CECClient.cpp
+@@ -1604,7 +1604,7 @@ void CCECClient::QueueConfigurationChanged(const libcec_configuration& config)
+ 
+ int CCECClient::QueueMenuStateChanged(const cec_menu_state newState)
+ {
+-  CCallbackWrap *wrapState = new CCallbackWrap(newState, true);
++  CCallbackWrap *wrapState = new CCallbackWrap(newState);
+   m_callbackCalls.Push(wrapState);
+   int result(wrapState->Result(1000));
+ 
 @@ -1617,6 +1617,17 @@ void CCECClient::QueueSourceActivated(bool bActivated, const cec_logical_address
    m_callbackCalls.Push(new CCallbackWrap(bActivated, logicalAddress));
  }
@@ -111,10 +120,10 @@ index b4167a1..3e8f5c4 100644
 +{
 +  CCallbackWrap *wrapState = new CCallbackWrap(command, true);
 +  m_callbackCalls.Push(wrapState);
-+  int result(wrapState->Result(1000));
++  int result(wrapState->Result(10000));
 +
-+  delete wrapState;
-+  printf("Command handler for command (%2X) returned %u\n", command.opcode, result);
++  if (wrapState->m_keepResult)
++    delete wrapState;
 +  return result;
 +}
 +
@@ -129,12 +138,20 @@ index b4167a1..3e8f5c4 100644
        try
        {
          switch (cb->m_type)
-@@ -1649,11 +1661,14 @@ void* CCECClient::Process(void)
+@@ -1644,16 +1656,21 @@ void* CCECClient::Process(void)
+           CallbackConfigurationChanged(cb->m_config);
+           break;
+         case CCallbackWrap::CEC_CB_MENU_STATE:
+-          cb->Report(CallbackMenuStateChanged(cb->m_menuState));
++          keepResult = cb->Report(CallbackMenuStateChanged(cb->m_menuState));
+           break;
          case CCallbackWrap::CEC_CB_SOURCE_ACTIVATED:
            CallbackSourceActivated(cb->m_bActivated, cb->m_logicalAddress);
            break;
 +        case CCallbackWrap::CEC_CB_COMMAND_HANDLER:
-+	  cb->Report(CallbackCommandHandler(cb->m_command));
++          keepResult = cb->Report(CallbackCommandHandler(cb->m_command));
++          if (!keepResult)
++            LIB_CEC->AddLog(CEC_LOG_WARNING, "Command callback timeout occured !");
 +	  break;
          default:
            break;
@@ -145,7 +162,7 @@ index b4167a1..3e8f5c4 100644
            delete cb;
        } catch (...)
        {
-@@ -1733,6 +1748,17 @@ int CCECClient::CallbackMenuStateChanged(const cec_menu_state newState)
+@@ -1733,6 +1750,17 @@ int CCECClient::CallbackMenuStateChanged(const cec_menu_state newState)
    return 0;
  }
  
@@ -164,36 +181,64 @@ index b4167a1..3e8f5c4 100644
  {
    CCECBusDevice* device = enable ? GetPrimaryDevice() : nullptr;
 diff --git a/src/libcec/CECClient.h b/src/libcec/CECClient.h
-index 1c23ee1..106b3e1 100644
+index 1c23ee1..d869df4 100644
 --- a/src/libcec/CECClient.h
 +++ b/src/libcec/CECClient.h
+@@ -107,13 +107,13 @@ namespace CEC
+       m_result(0),
+       m_bSucceeded(false) {}
+ 
+-    CCallbackWrap(const cec_menu_state newState, const bool keepResult = false) :
++    CCallbackWrap(const cec_menu_state newState) :
+       m_type(CEC_CB_MENU_STATE),
+       m_alertType(CEC_ALERT_SERVICE_DEVICE),
+       m_menuState(newState),
+       m_bActivated(false),
+       m_logicalAddress(CECDEVICE_UNKNOWN),
+-      m_keepResult(keepResult),
++      m_keepResult(true),
+       m_result(0),
+       m_bSucceeded(false) {}
+ 
 @@ -127,6 +127,17 @@ namespace CEC
        m_result(0),
        m_bSucceeded(false) {}
  
-+    CCallbackWrap(const cec_command& command, const bool keepResult) :
++    CCallbackWrap(const cec_command& command, const bool unused) :
 +      m_type(CEC_CB_COMMAND_HANDLER),
 +      m_command(command),
 +      m_alertType(CEC_ALERT_SERVICE_DEVICE),
 +      m_menuState(CEC_MENU_STATE_ACTIVATED),
 +      m_bActivated(false),
 +      m_logicalAddress(CECDEVICE_UNKNOWN),
-+      m_keepResult(keepResult),
++      m_keepResult(true),
 +      m_result(0),
 +      m_bSucceeded(false) {}
 +
      int Result(uint32_t iTimeout)
      {
        P8PLATFORM::CLockObject lock(m_mutex);
-@@ -134,6 +145,7 @@ namespace CEC
+@@ -134,16 +145,18 @@ namespace CEC
        bool bReturn = m_bSucceeded ? true : m_condition.Wait(m_mutex, m_bSucceeded, iTimeout);
        if (bReturn)
          return m_result;
-+      printf("Callback timed out !!!!\n");
++      m_keepResult = false;
        return 0;
      }
  
-@@ -154,6 +166,7 @@ namespace CEC
+-    void Report(int result)
++    bool Report(int result)
+     {
+       P8PLATFORM::CLockObject lock(m_mutex);
+ 
+       m_result = result;
+       m_bSucceeded = true;
+       m_condition.Signal();
++      return m_keepResult;
+     }
+ 
+     enum callbackWrapType {
+@@ -154,6 +167,7 @@ namespace CEC
        CEC_CB_CONFIGURATION,
        CEC_CB_MENU_STATE,
        CEC_CB_SOURCE_ACTIVATED,
@@ -201,7 +246,7 @@ index 1c23ee1..106b3e1 100644
      } m_type;
  
      cec_command                  m_command;
-@@ -314,6 +327,7 @@ namespace CEC
+@@ -314,6 +328,7 @@ namespace CEC
      void QueueConfigurationChanged(const libcec_configuration& config);
      int QueueMenuStateChanged(const cec_menu_state newState); //TODO
      void QueueSourceActivated(bool bActivated, const cec_logical_address logicalAddress);
@@ -209,7 +254,15 @@ index 1c23ee1..106b3e1 100644
  
      // callbacks
      virtual void                  Alert(const libcec_alert type, const libcec_parameter &param) { QueueAlert(type, param); }
-@@ -443,6 +457,7 @@ namespace CEC
+@@ -436,6 +451,7 @@ namespace CEC
+     virtual void SetSupportedDeviceTypes(void);
+ 
+     void AddCommand(const cec_command &command);
++    void AddCommandHandler(const cec_command &command);
+     void CallbackAddCommand(const cec_command& command);
+     void CallbackAddKey(const cec_keypress& key);
+     void CallbackAddLog(const cec_log_message_cpp& message);
+@@ -443,6 +459,7 @@ namespace CEC
      void CallbackConfigurationChanged(const libcec_configuration& config);
      int  CallbackMenuStateChanged(const cec_menu_state newState);
      void CallbackSourceActivated(bool bActivated, const cec_logical_address logicalAddress);
@@ -217,6 +270,68 @@ index 1c23ee1..106b3e1 100644
  
      uint32_t DoubleTapTimeoutMS(void);
  
+diff --git a/src/libcec/LibCEC.cpp b/src/libcec/LibCEC.cpp
+index a814f38..1e1a66e 100644
+--- a/src/libcec/LibCEC.cpp
++++ b/src/libcec/LibCEC.cpp
+@@ -408,7 +408,7 @@ void CLibCEC::AddLog(const cec_log_level level, const char *strFormat, ...)
+   va_end(argList);
+ 
+   // send the message to all clients
+-  CLockObject lock(m_mutex);
++  //CLockObject lock(m_mutex);
+   for (std::vector<CECClientPtr>::iterator it = m_clients.begin(); it != m_clients.end(); it++)
+     (*it)->AddLog(message);
+ }
+@@ -416,15 +416,25 @@ void CLibCEC::AddLog(const cec_log_level level, const char *strFormat, ...)
+ void CLibCEC::AddCommand(const cec_command &command)
+ {
+   // send the command to all clients
+-  CLockObject lock(m_mutex);
++  //CLockObject lock(m_mutex);
+   for (std::vector<CECClientPtr>::iterator it = m_clients.begin(); it != m_clients.end(); it++)
+     (*it)->QueueAddCommand(command);
+ }
+ 
++bool CLibCEC::CommandHandlerCB(const cec_command &command)
++{
++  // send the command to all clients
++  //CLockObject lock(m_mutex);
++  for (std::vector<CECClientPtr>::iterator it = m_clients.begin(); it != m_clients.end(); it++)
++    if ((*it)->QueueCommandHandler(command))
++      return true;
++  return false;
++}
++
+ void CLibCEC::Alert(const libcec_alert type, const libcec_parameter &param)
+ {
+   // send the alert to all clients
+-  CLockObject lock(m_mutex);
++  //CLockObject lock(m_mutex);
+   for (std::vector<CECClientPtr>::iterator it = m_clients.begin(); it != m_clients.end(); it++)
+     (*it)->Alert(type, param);
+ }
+diff --git a/src/libcec/LibCEC.h b/src/libcec/LibCEC.h
+index feaad33..1344c65 100644
+--- a/src/libcec/LibCEC.h
++++ b/src/libcec/LibCEC.h
+@@ -144,6 +144,7 @@ namespace CEC
+ 
+       void AddLog(const cec_log_level level, const char *strFormat, ...);
+       void AddCommand(const cec_command &command);
++      bool CommandHandlerCB(const cec_command &command);
+       uint16_t CheckKeypressTimeout(void);
+       void Alert(const libcec_alert type, const libcec_parameter &param);
+ 
+@@ -169,7 +170,7 @@ namespace CEC
+ 
+     protected:
+       int64_t                   m_iStartTime;
+-      P8PLATFORM::CMutex        m_mutex;
++      //P8PLATFORM::CMutex        m_mutex;
+       CECClientPtr              m_client;
+       std::vector<CECClientPtr> m_clients;
+   };
 diff --git a/src/libcec/SwigHelper.h b/src/libcec/SwigHelper.h
 index 9855976..8ed6915 100644
 --- a/src/libcec/SwigHelper.h
@@ -253,46 +368,19 @@ index 9855976..8ed6915 100644
      libcec_configuration* m_configuration;
    };
 diff --git a/src/libcec/implementations/CECCommandHandler.cpp b/src/libcec/implementations/CECCommandHandler.cpp
-index 09087f1..2261a93 100644
+index 09087f1..5602e6e 100644
 --- a/src/libcec/implementations/CECCommandHandler.cpp
 +++ b/src/libcec/implementations/CECCommandHandler.cpp
-@@ -77,6 +77,18 @@ bool CCECCommandHandler::HandleCommand(const cec_command &command)
+@@ -77,6 +77,9 @@ bool CCECCommandHandler::HandleCommand(const cec_command &command)
  
    LIB_CEC->AddCommand(command);
  
-+
-+  CCECBusDevice *device = GetDevice(command.destination);
-+  if (device)
-+  {
-+    CECClientPtr client = device->GetClient();
-+    if (client)
-+    {
-+      if (client->QueueCommandHandler(command) == 1)
-+        return true;
-+    }
-+  }
++  if (LIB_CEC->CommandHandlerCB(command))
++    return true;
 +
    switch(command.opcode)
    {
    case CEC_OPCODE_REPORT_POWER_STATUS:
-@@ -100,9 +112,16 @@ bool CCECCommandHandler::HandleCommand(const cec_command &command)
-   case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID:
-     iHandled = HandleGiveDeviceVendorId(command);
-     break;
--  case CEC_OPCODE_DEVICE_VENDOR_ID:
-+  case CEC_OPCODE_DEVICE_VENDOR_ID: {
-+    libcec_configuration config;
-+    LIB_CEC->GetCurrentConfiguration(&config);
-+    if (!config.deviceTypes.IsEmpty() && config.deviceTypes.types[0] == CEC_DEVICE_TYPE_AUDIO_SYSTEM) {
-+      iHandled = COMMAND_HANDLED;
-+      break; // Don't try to emulate the vendor if we're an audio system
-+    }
-     iHandled = HandleDeviceVendorId(command);
-     break;
-+    }
-   case CEC_OPCODE_VENDOR_COMMAND_WITH_ID:
-     iHandled = HandleDeviceVendorCommandWithId(command);
-     break;
 diff --git a/src/libcec/libcec.i b/src/libcec/libcec.i
 index 88250be..d62895e 100644
 --- a/src/libcec/libcec.i
