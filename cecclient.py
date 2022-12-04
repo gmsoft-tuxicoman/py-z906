@@ -53,6 +53,7 @@ class CecClient:
         self.logger.debug("Found adapter " + adapter.strComName)
         self.lib.Open(adapter.strComName)
 
+
     def reportAudioStatus(self, level, mute):
 
         status = int(level)
@@ -67,6 +68,7 @@ class CecClient:
 
         self.enabled = True
         self.logger.info("Enabling CEC ARC")
+
 
         # Power on
         self.sendCommand("90:00")
@@ -145,7 +147,6 @@ class CecClient:
         # ARC start
         elif cmd == "c3":
             self.logger.debug("Received : ARC start")
-            self.sendCommand('87:00:80:45', '5', 'f')
             self.sendCommand("c0", dst=src)
 
         # ARC end
@@ -163,12 +164,16 @@ class CecClient:
         # Get CEC Version
         elif cmd == "9f":
             self.logger.debug("Received : Get CEC Version")
-            self.send("9E:05", dst=src) # Version 1.4
+            self.send("9e:05", dst=src) # Version 1.4
 
         # Give audio status
         elif cmd == "71":
             self.logger.debug("Received : Give audio status")
             self.evtCallback("give_audio_status")
+
+        # Abort vendor commands
+        elif cmd == "89":
+            self.sendCommand("00:89:00", dst=src)
 
 
         # Give system audio mode status
@@ -192,6 +197,13 @@ class CecClient:
 
         # System audio mode request
         elif cmd.startswith("70"):
+            src_port = None
+            if len(cmd) > 2:
+                src_port = cmd[3] + '.' + cmd[4] + '.' + cmd[6] + '.' + cmd[7]
+            if src_port and src_port != self.src_port:
+                self.src_port = src_port
+                self.evtCallback("src_changed")
+
             if self.enabled:
                 self.sendCommand("72:01", dst=src)
             else:
