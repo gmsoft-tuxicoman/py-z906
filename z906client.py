@@ -219,6 +219,10 @@ class Z906Client():
 
         ret = self.request(cmd)
 
+    def get_input(self):
+        self.update()
+        return self.status[self.STATUS_CURRENT_INPUT] + 1
+
     def mute(self, on):
         """
         Turn mute on or off.
