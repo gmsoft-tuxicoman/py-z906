@@ -64,3 +64,8 @@ This works especially well on RPI which have both a UART port on the GPIO header
 **You must connect the HDMI cable on the HDMI ARC port of the TV.**
 
 If you only want to use the Z906 for certain HDMI ports you can specify the `-a <hdmi-port-number>` for each port you want to use the Z906. When another HDMI port is in use on TV, the CEC-ARC will be disabled and allow the TV speakers to be used.
+
+
+## z906bt.py
+This client will translate Bluetooth volume as well as play/pause event to update the z906 volume and power on/off.
+**IT does not receive the audio ! Only control the z906.** For receiving audio, you can use one of my [other script](https://github.com/gmsoft-tuxicoman/bt-audio).
