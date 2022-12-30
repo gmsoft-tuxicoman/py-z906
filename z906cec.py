@@ -46,7 +46,7 @@ class Z906Cec():
     
         self.logger.info("Ready !")
 
-    del __del__(self):
+    def __del__(self):
         self.logger.info("Powering off Z906")
         self.z906.power_off()
 
