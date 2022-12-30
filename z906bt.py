@@ -18,6 +18,7 @@ class Z906BT():
     bt = None
     last_input = 1
     logger = logging.getLogger("Z906BT")
+    bt_input = None
 
 
     def __init__(self, z906_port, z906_input):
@@ -27,6 +28,7 @@ class Z906BT():
         self.logger.debug("Connected to Z906")
 
         self.bt = btclient.BTClient(self.evtCallback)
+        self.bt_input = z906_input
 
     def __del__(self):
         self.logger.info("Powering off Z906 ...")
@@ -35,6 +37,7 @@ class Z906BT():
     def evtCallback(self, evt, val = None):
         if evt == "play":
             self.last_input = self.z906.get_input()
+            self.z906.select_input(self.bt_input)
             self.z906.power_on()
         elif evt == "pause":
             self.z906.select_input(self.last_input)
