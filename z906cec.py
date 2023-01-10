@@ -32,6 +32,7 @@ class Z906Cec():
         self.logger.info("Connecting to Z906 ...")
         self.z906 = z906client.Z906Client(z906_port)
         self.z906.update()
+        self.z906.power_off()
         self.logger.debug("Connected to Z906")
         
 
