@@ -37,6 +37,9 @@ class CecClient:
         self.logger = logging.getLogger("CecClient")
 
     def _cecLogCallback(self, level, time, message):
+        if "device vendor id (87)" in message or message.startswith(">> 0f:87"):
+            # Don't log spammy vendor ID commands
+            return
         self.logger.debug("CEC: " + message)
 
 
@@ -99,7 +102,6 @@ class CecClient:
     def _cmdCallback(self, cmd):
 
         cmd=cmd[3:]
-        self.logger.debug("Got CEC command " + cmd)
 
         # Discard source and dest
         if cmd[1] != 'f' and cmd[1] != '5':
@@ -109,6 +111,12 @@ class CecClient:
         src = cmd[0]
         dst = cmd[1]
         cmd = cmd[3:]
+
+        if cmd.startswith('87:'):
+            # Ignore Vendor ID command which are sent at regular interval
+            return 1
+
+        self.logger.debug("Got CEC command " + cmd)
 
         # Key presset event
         if cmd.startswith("44:"):
@@ -131,8 +139,8 @@ class CecClient:
             self.logger.debug("Key released")
 
         # Vendor ID
-        elif cmd.startswith("87"):
-            self.logger.debug("Received vendor ID : " + cmd[3:] + " from device " + src)
+        #elif cmd.startswith("87"):
+        #    self.logger.debug("Received vendor ID : " + cmd[3:] + " from device " + src)
 
         # ARC initiated
         elif cmd == "c1":
