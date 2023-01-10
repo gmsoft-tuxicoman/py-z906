@@ -32,7 +32,6 @@ class Z906Cec():
         self.logger.info("Connecting to Z906 ...")
         self.z906 = z906client.Z906Client(z906_port)
         self.z906.update()
-        self.z906.select_input(z906_input)
         self.logger.debug("Connected to Z906")
         
 
@@ -71,6 +70,7 @@ class Z906Cec():
         elif evt == "arc_start":
             if self.cecClient.is_enabled():
                 self.z906.power_on()
+                self.z906.select_input(z906_input)
         elif evt == "arc_stop":
             if self.cecClient.is_enabled():
                 self.z906.power_off()
@@ -88,6 +88,7 @@ class Z906Cec():
                 if src_port.startswith(p):
                     self.cecClient.enable()
                     self.z906.power_on()
+                    self.z906.select_input(z906_input)
                     return
             self.cecClient.disable()
             self.z906.power_off()
