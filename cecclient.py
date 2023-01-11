@@ -37,7 +37,7 @@ class CecClient:
         self.logger = logging.getLogger("CecClient")
 
     def _cecLogCallback(self, level, time, message):
-        if "device vendor id (87)" in message or message.startswith(">> 0f:87"):
+        if "device vendor id (87)" in message or "f:87:" in message:
             # Don't log spammy vendor ID commands
             return
         self.logger.debug("CEC: " + message)
