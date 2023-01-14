@@ -15,8 +15,7 @@ class CecClient:
     evtCallback = None
     enabled = True
 
-    # Assume default source is TV
-    src_port = "0.0.0.0"
+    src_port = None
 
     def __init__(self, name):
         self.cecconfig.strDeviceName = name
@@ -205,12 +204,6 @@ class CecClient:
 
         # System audio mode request
         elif cmd.startswith("70"):
-            src_port = None
-            if len(cmd) > 2:
-                src_port = cmd[3] + '.' + cmd[4] + '.' + cmd[6] + '.' + cmd[7]
-            if src_port and src_port != self.src_port:
-                self.src_port = src_port
-                self.evtCallback("src_changed")
 
             if self.enabled:
                 self.sendCommand("72:01", dst=src)
